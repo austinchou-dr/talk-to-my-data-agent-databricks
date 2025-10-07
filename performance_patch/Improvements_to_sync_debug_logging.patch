@@ -1,0 +1,113 @@
+From c6ac183022e7ed7801002cdc8bd8c177036149d4 Mon Sep 17 00:00:00 2001
+From: Damon Stanley <damonsava@gmail.com>
+Date: Mon, 29 Sep 2025 10:19:26 -0700
+Subject: [PATCH] tmp: Improvements to sync + debug logging
+
+---
+ app_backend/start-app.sh |  2 +-
+ utils/logging_helper.py  |  4 ++--
+ utils/rest_api.py        | 31 +++++++++++++++++++++++++++----
+ 3 files changed, 30 insertions(+), 7 deletions(-)
+
+diff --git a/app_backend/start-app.sh b/app_backend/start-app.sh
+index 81bb1c4..19d19df 100755
+--- a/app_backend/start-app.sh
++++ b/app_backend/start-app.sh
+@@ -2,7 +2,7 @@
+ 
+ export PORT=${PORT:-"8080"}
+ DEV_MODE=${DEV_MODE:-false}
+-LOG_LEVEL="info"
++LOG_LEVEL="debug"
+ EXTRA_OPTS=(--proxy-headers)
+ 
+ if [ "$(echo "$DEV_MODE" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+diff --git a/utils/logging_helper.py b/utils/logging_helper.py
+index a0efc74..8cae38e 100644
+--- a/utils/logging_helper.py
++++ b/utils/logging_helper.py
+@@ -17,7 +17,7 @@ from datetime import datetime
+ from functools import wraps
+ from typing import Any, Callable, Coroutine, ParamSpec, TypeVar
+ 
+-logging.basicConfig(level=logging.INFO)
++logging.basicConfig(level=logging.DEBUG)
+ 
+ 
+ def get_logger(name: str = "DataAnalystBackend") -> logging.Logger:
+@@ -25,7 +25,7 @@ def get_logger(name: str = "DataAnalystBackend") -> logging.Logger:
+         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+     )
+     consoleHandle = logging.StreamHandler()
+-    consoleHandle.setLevel(logging.INFO)
++    consoleHandle.setLevel(logging.DEBUG)
+     consoleHandle.setFormatter(formatter)
+     logger = logging.getLogger(name)
+     logger.propagate = False  # Prevent propagation to root logger
+diff --git a/utils/rest_api.py b/utils/rest_api.py
+index 4b0a7a3..4dbb1ff 100644
+--- a/utils/rest_api.py
++++ b/utils/rest_api.py
+@@ -379,7 +379,7 @@ def _set_session_cookie(
+ 
+ 
+ @router.get("/registry/datasets")
+-async def get_registry_datasets(
++def get_registry_datasets(
+     request: Request, remote: bool = False, limit: int = 100
+ ) -> list[DataRegistryDataset]:
+     """Return all registry datasets
+@@ -397,7 +397,7 @@ async def get_registry_datasets(
+ 
+ 
+ @router.get("/database/tables")
+-async def get_database_tables() -> list[str]:
++def get_database_tables() -> list[str]:
+     return get_external_database().get_tables()
+ 
+ 
+@@ -410,8 +410,21 @@ async def process_and_update(
+         pass
+ 
+ 
++# Making this sync
+ @router.post("/datasets/upload")
+-async def upload_files(
++def upload_files(
++    request: Request,
++    background_tasks: BackgroundTasks,
++    data_source: str | DataSourceType | None = None,
++    analyst_db: AnalystDB = Depends(get_initialized_db),
++    files: List[UploadFile] | None = None,
++    registry_ids: str | None = Form(None),
++) -> list[FileUploadResponse]:
++    return asyncio.run(_upload_files(
++        request=request, 
++        background_tasks=background_tasks, data_source=data_source, analyst_db=analyst_db, files=files, registry_ids=registry_ids))
++    
++async def _upload_files(
+     request: Request,
+     background_tasks: BackgroundTasks,
+     data_source: str | DataSourceType | None = None,
+@@ -555,7 +568,17 @@ async def upload_files(
+ 
+ 
+ @router.post("/database/select")
+-async def load_from_database(
++def load_from_database(
++    data: LoadDatabaseRequest,
++    background_tasks: BackgroundTasks,
++    analyst_db: AnalystDB = Depends(get_initialized_db),
++    sample_size: int = 5000,
++) -> list[str]:
++    return asyncio.run(_load_from_database(
++        data=data, background_tasks=background_tasks, analyst_db=analyst_db, sample_size=sample_size
++    ))
++    
++async def _load_from_database(
+     data: LoadDatabaseRequest,
+     background_tasks: BackgroundTasks,
+     analyst_db: AnalystDB = Depends(get_initialized_db),
+-- 
+2.51.0
+
